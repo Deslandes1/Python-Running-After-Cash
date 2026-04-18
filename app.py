@@ -1,6 +1,6 @@
 import streamlit as st
 
-st.set_page_config(page_title="Python Running After Cash", layout="centered")
+st.set_page_config(page_title="Python Running After Cash", layout="wide")
 
 st.markdown("""
 <style>
@@ -20,14 +20,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 game_html = """
-<canvas id="gameCanvas" width="800" height="400"></canvas>
+<canvas id="gameCanvas" width="1000" height="500"></canvas>
 <div class="info">
     <span>💰 Cash: <span id="scoreDisplay">0</span> / 5</span>
     &nbsp;&nbsp;&nbsp;
     <span id="statusMessage">🐍 Jump to catch money!</span>
-</div>
-<div style="text-align: center;">
-    <button id="restartButton">🔄 Restart Game</button>
 </div>
 
 <script>
@@ -39,32 +36,32 @@ game_html = """
         const statusSpan = document.getElementById('statusMessage');
 
         // ---------- Game constants ----------
-        const W = 800, H = 400;
-        const GROUND_Y = H - 40;
-        const SNAKE_W = 40, SNAKE_H = 40;
-        const MONEY_W = 25, MONEY_H = 25;
-        const CAR_W = 60, CAR_H = 40;
+        const W = 1000, H = 500;
+        const GROUND_Y = H - 50;
+        const SNAKE_W = 45, SNAKE_H = 45;
+        const MONEY_W = 30, MONEY_H = 30;
+        const CAR_W = 70, CAR_H = 45;
 
         // ---------- Game state ----------
-        let snake = { x: 50, y: GROUND_Y - SNAKE_H, vy: 0, onGround: true, score: 0 };
+        let snake = { x: 60, y: GROUND_Y - SNAKE_H, vy: 0, onGround: true, score: 0 };
         let moneyBags = [
-            { x: 250, y: GROUND_Y - 70, collected: false },
-            { x: 450, y: GROUND_Y - 100, collected: false },
-            { x: 650, y: GROUND_Y - 60, collected: false },
-            { x: 850, y: GROUND_Y - 90, collected: false },
-            { x: 1050, y: GROUND_Y - 80, collected: false }
+            { x: 300, y: GROUND_Y - 80, collected: false },
+            { x: 550, y: GROUND_Y - 110, collected: false },
+            { x: 800, y: GROUND_Y - 70, collected: false },
+            { x: 1050, y: GROUND_Y - 100, collected: false },
+            { x: 1300, y: GROUND_Y - 90, collected: false }
         ];
         let cars = [];
         let carSpawnCounter = 0;
         let gameOver = false;
         let win = false;
         let animationId = null;
-        let lastTimestamp = 0;
-        let finishLineX = 1200;
         let allCollected = false;
+        let autoMoveSpeed = 3.5;
+        let finishLineX = 1450;
         
-        // For automatic walking (snake moves right automatically)
-        let autoMoveSpeed = 3;
+        // For automatic restart after hit
+        let hitTimer = null;
 
         // ---------- Sound (simple beep using Web Audio) ----------
         let audioCtx = null;
@@ -72,7 +69,6 @@ game_html = """
             if (!audioCtx) {
                 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             }
-            // resume if suspended (browser policy)
             if (audioCtx.state === 'suspended') {
                 audioCtx.resume();
             }
@@ -80,7 +76,7 @@ game_html = """
             const gain = audioCtx.createGain();
             osc.connect(gain);
             gain.connect(audioCtx.destination);
-            osc.frequency.value = 880; // A5
+            osc.frequency.value = 880;
             gain.gain.value = 0.2;
             osc.type = 'sine';
             osc.start();
@@ -88,7 +84,6 @@ game_html = """
             osc.stop(audioCtx.currentTime + 0.3);
         }
 
-        // ---------- Helper functions ----------
         function updateScoreUI() {
             scoreSpan.textContent = `${snake.score} / ${moneyBags.length}`;
         }
@@ -97,11 +92,36 @@ game_html = """
             return moneyBags.every(b => b.collected);
         }
 
+        // ---------- Reset game fully ----------
+        function fullReset() {
+            // cancel any pending restart
+            if (hitTimer) clearTimeout(hitTimer);
+            snake = { x: 60, y: GROUND_Y - SNAKE_H, vy: 0, onGround: true, score: 0 };
+            moneyBags = [
+                { x: 300, y: GROUND_Y - 80, collected: false },
+                { x: 550, y: GROUND_Y - 110, collected: false },
+                { x: 800, y: GROUND_Y - 70, collected: false },
+                { x: 1050, y: GROUND_Y - 100, collected: false },
+                { x: 1300, y: GROUND_Y - 90, collected: false }
+            ];
+            cars = [];
+            carSpawnCounter = 0;
+            gameOver = false;
+            win = false;
+            allCollected = false;
+            snake.score = 0;
+            updateScoreUI();
+            statusSpan.innerText = "🐍 Jump to catch money!";
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
         // ---------- Game logic update ----------
         function updateGame() {
             if (gameOver || win) return;
 
-            // 1. Snake physics (jump)
+            // Snake physics
             snake.vy += 0.8;
             snake.y += snake.vy;
             if (snake.y >= GROUND_Y - SNAKE_H) {
@@ -116,39 +136,46 @@ game_html = """
                 snake.vy = 0;
             }
 
-            // 2. Auto move right (only if not all collected yet)
+            // Auto move right
             if (!allCollected) {
                 snake.x += autoMoveSpeed;
                 if (snake.x < 0) snake.x = 0;
             }
 
-            // 3. Car spawning and movement
+            // Car spawning
             carSpawnCounter++;
-            if (carSpawnCounter > 90 && !allCollected) { // every ~1.5 sec
+            if (carSpawnCounter > 85 && !allCollected) {
                 carSpawnCounter = 0;
                 cars.push({ x: W, y: GROUND_Y - CAR_H, w: CAR_W, h: CAR_H });
             }
             for (let i = 0; i < cars.length; i++) {
-                cars[i].x -= 6;
+                cars[i].x -= 7;
                 if (cars[i].x + CAR_W < 0) {
                     cars.splice(i,1);
                     i--;
                 }
             }
 
-            // 4. Collision with car
+            // Collision with car -> trigger restart
             for (let car of cars) {
                 if (snake.x < car.x + CAR_W &&
                     snake.x + SNAKE_W > car.x &&
                     snake.y < car.y + CAR_H &&
                     snake.y + SNAKE_H > car.y) {
                     gameOver = true;
-                    statusSpan.innerText = "💀 Game Over! Press Restart.";
+                    statusSpan.innerText = "💥 Hit by car! Restarting...";
+                    // Automatic restart after 0.8 seconds
+                    hitTimer = setTimeout(() => {
+                        fullReset();
+                        gameOver = false;
+                        win = false;
+                        statusSpan.innerText = "🐍 Jump to catch money!";
+                    }, 800);
                     return;
                 }
             }
 
-            // 5. Money collection
+            // Money collection
             for (let i=0; i<moneyBags.length; i++) {
                 let m = moneyBags[i];
                 if (!m.collected &&
@@ -163,28 +190,25 @@ game_html = """
                 }
             }
 
-            // 6. Check if all collected
+            // Check all collected
             allCollected = checkAllCollected();
             if (allCollected) {
                 statusSpan.innerText = "🎉 All money collected! Run to the finish line! 🎉";
-                // If snake passes finish line, win
                 if (snake.x + SNAKE_W >= finishLineX) {
                     win = true;
                     statusSpan.innerText = "🏆 Congratulations! Pythoneer! 🏆";
                 }
             } else {
-                // if not all collected, ensure win is false
                 win = false;
             }
 
-            // 7. Win condition (already checked above)
             if (allCollected && snake.x + SNAKE_W >= finishLineX) {
                 win = true;
                 statusSpan.innerText = "🏆 Congratulations! Pythoneer! 🏆";
             }
         }
 
-        // ---------- Drawing functions ----------
+        // ---------- Drawing ----------
         function draw() {
             ctx.clearRect(0, 0, W, H);
             // Sky
@@ -196,7 +220,6 @@ game_html = """
             ctx.fillStyle = "#654321";
             ctx.fillRect(0, GROUND_Y+5, W, 5);
             
-            // Finish line (if all collected)
             if (allCollected) {
                 ctx.beginPath();
                 ctx.moveTo(finishLineX, 0);
@@ -205,118 +228,84 @@ game_html = """
                 ctx.strokeStyle = "blue";
                 ctx.stroke();
                 ctx.fillStyle = "blue";
-                ctx.font = "bold 16px monospace";
-                ctx.fillText("FINISH", finishLineX-40, H/2);
+                ctx.font = "bold 18px monospace";
+                ctx.fillText("FINISH", finishLineX-45, H/2);
             }
             
-            // Draw money bags
+            // Money bags
             for (let m of moneyBags) {
                 if (!m.collected) {
                     ctx.fillStyle = "#FFD700";
                     ctx.fillRect(m.x, m.y, MONEY_W, MONEY_H);
                     ctx.fillStyle = "#000";
-                    ctx.font = "bold 16px monospace";
-                    ctx.fillText("$", m.x+6, m.y+18);
+                    ctx.font = "bold 20px monospace";
+                    ctx.fillText("$", m.x+8, m.y+22);
                 }
             }
             
-            // Draw cars
+            // Cars
             for (let car of cars) {
                 ctx.fillStyle = "#FF4500";
                 ctx.fillRect(car.x, car.y, CAR_W, CAR_H);
                 ctx.fillStyle = "#333";
-                ctx.fillRect(car.x+10, car.y+25, 15, 15);
-                ctx.fillRect(car.x+35, car.y+25, 15, 15);
+                ctx.fillRect(car.x+15, car.y+30, 15, 15);
+                ctx.fillRect(car.x+40, car.y+30, 15, 15);
                 ctx.fillStyle = "#555";
-                ctx.fillRect(car.x+15, car.y+5, 30, 20);
+                ctx.fillRect(car.x+20, car.y+8, 30, 25);
             }
             
-            // Draw snake (green rectangle with eyes)
+            // Snake
             ctx.fillStyle = "#2E8B57";
             ctx.fillRect(snake.x, snake.y, SNAKE_W, SNAKE_H);
             ctx.fillStyle = "white";
-            ctx.fillRect(snake.x+8, snake.y+8, 8, 8);
-            ctx.fillRect(snake.x+24, snake.y+8, 8, 8);
+            ctx.fillRect(snake.x+10, snake.y+10, 10, 10);
+            ctx.fillRect(snake.x+25, snake.y+10, 10, 10);
             ctx.fillStyle = "black";
-            ctx.fillRect(snake.x+10, snake.y+10, 4, 4);
-            ctx.fillRect(snake.x+26, snake.y+10, 4, 4);
-            // Tongue
+            ctx.fillRect(snake.x+12, snake.y+12, 5, 5);
+            ctx.fillRect(snake.x+27, snake.y+12, 5, 5);
             ctx.beginPath();
             ctx.moveTo(snake.x+SNAKE_W, snake.y+SNAKE_H/2);
-            ctx.lineTo(snake.x+SNAKE_W+10, snake.y+SNAKE_H/2-5);
-            ctx.lineTo(snake.x+SNAKE_W+10, snake.y+SNAKE_H/2+5);
+            ctx.lineTo(snake.x+SNAKE_W+12, snake.y+SNAKE_H/2-6);
+            ctx.lineTo(snake.x+SNAKE_W+12, snake.y+SNAKE_H/2+6);
             ctx.fillStyle = "red";
             ctx.fill();
             
-            // Game over text
-            if (gameOver) {
-                ctx.font = "bold 30px monospace";
+            if (gameOver && !win) {
+                ctx.font = "bold 28px monospace";
                 ctx.fillStyle = "red";
-                ctx.fillText("GAME OVER", W/2-100, H/2);
+                ctx.fillText("GAME OVER – RESTARTING...", W/2-180, H/2);
             }
             if (win) {
-                ctx.font = "bold 24px monospace";
+                ctx.font = "bold 28px monospace";
                 ctx.fillStyle = "gold";
-                ctx.fillText("Congratulations! Pythoneer!", W/2-180, H/2-30);
-                // Draw some balloons
-                for (let i=0; i<10; i++) {
-                    ctx.fillStyle = `hsl(${Date.now()/20 + i*36}, 70%, 60%)`;
+                ctx.fillText("Congratulations! Pythoneer!", W/2-210, H/2-40);
+                // Balloons
+                for (let i=0; i<12; i++) {
+                    ctx.fillStyle = `hsl(${Date.now()/20 + i*30}, 70%, 60%)`;
                     ctx.beginPath();
-                    ctx.ellipse(100 + i*70, H-80 - Math.sin(Date.now()/300 + i)*20, 15, 20, 0, 0, Math.PI*2);
+                    ctx.ellipse(120 + i*70, H-100 - Math.sin(Date.now()/300 + i)*25, 18, 24, 0, 0, Math.PI*2);
                     ctx.fill();
                     ctx.beginPath();
-                    ctx.moveTo(100 + i*70, H-80);
-                    ctx.lineTo(100 + i*70 - 3, H-60);
-                    ctx.lineTo(100 + i*70 + 3, H-60);
+                    ctx.moveTo(120 + i*70, H-100);
+                    ctx.lineTo(120 + i*70 - 4, H-75);
+                    ctx.lineTo(120 + i*70 + 4, H-75);
                     ctx.fill();
                 }
             }
         }
 
-        // ---------- Game loop ----------
         function gameLoop() {
             updateGame();
             draw();
-            if (!gameOver && !win) {
-                requestAnimationFrame(gameLoop);
-            } else {
-                // if game over or win, keep drawing but stop updates? We still loop but no movement.
-                // Actually we still call loop to allow restart button to reset.
-                requestAnimationFrame(gameLoop);
-            }
+            requestAnimationFrame(gameLoop);
         }
 
-        // ---------- Jump control ----------
+        // ---------- Jump ----------
         function jump() {
             if (gameOver || win) return;
             if (snake.onGround) {
-                snake.vy = -11;
+                snake.vy = -12;
                 snake.onGround = false;
-            }
-        }
-
-        // ---------- Restart function ----------
-        function restartGame() {
-            // Reset state
-            snake = { x: 50, y: GROUND_Y - SNAKE_H, vy: 0, onGround: true, score: 0 };
-            moneyBags = [
-                { x: 250, y: GROUND_Y - 70, collected: false },
-                { x: 450, y: GROUND_Y - 100, collected: false },
-                { x: 650, y: GROUND_Y - 60, collected: false },
-                { x: 850, y: GROUND_Y - 90, collected: false },
-                { x: 1050, y: GROUND_Y - 80, collected: false }
-            ];
-            cars = [];
-            carSpawnCounter = 0;
-            gameOver = false;
-            win = false;
-            allCollected = false;
-            snake.score = 0;
-            updateScoreUI();
-            statusSpan.innerText = "🐍 Jump to catch money!";
-            // Restart audio context if needed
-            if (audioCtx && audioCtx.state === 'suspended') {
-                audioCtx.resume();
             }
         }
 
@@ -327,15 +316,12 @@ game_html = """
                 jump();
             }
         });
-        document.getElementById('restartButton').addEventListener('click', function() {
-            restartGame();
-        });
         
-        // Start the game
-        restartGame();  // initial reset to correct values
+        // Start
+        fullReset();
         gameLoop();
     })();
 </script>
 """
 
-st.components.v1.html(game_html, height=480, scrolling=False)
+st.components.v1.html(game_html, height=560, scrolling=False)
