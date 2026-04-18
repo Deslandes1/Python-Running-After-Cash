@@ -5,8 +5,9 @@ st.set_page_config(page_title="Python Running After Cash", layout="wide")
 st.markdown("""
 <style>
     body { margin: 0; overflow: hidden; }
-    canvas { display: block; margin: 0 auto; border: 2px solid #333; box-shadow: 0 0 10px rgba(0,0,0,0.2); }
+    canvas { display: block; margin: 0 auto; border: 2px solid #333; box-shadow: 0 0 10px rgba(0,0,0,0.2); cursor: pointer; }
     .info { text-align: center; font-family: monospace; font-size: 1.2rem; margin-top: 10px; }
+    .focus-note { text-align: center; color: #666; font-size: 0.9rem; margin-top: 5px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -14,15 +15,16 @@ st.markdown("""
 <div style="text-align: center;">
     <h1>🐍 Python Running After Cash 💰</h1>
     <p>Press <strong>SPACE</strong> or <strong>UP ARROW</strong> to jump. Collect all 5 money bags, avoid the red car, and reach the finish line!</p>
+    <p class="focus-note">⚠️ Click on the game area first to activate keyboard controls ⚠️</p>
 </div>
 """, unsafe_allow_html=True)
 
 game_html = """
-<canvas id="gameCanvas" width="1000" height="500"></canvas>
+<canvas id="gameCanvas" width="1000" height="500" tabindex="0" style="outline: none;"></canvas>
 <div class="info">
     <span>💰 Cash: <span id="scoreDisplay">0</span> / 5</span>
     &nbsp;&nbsp;&nbsp;
-    <span id="statusMessage">🐍 Jump to catch money!</span>
+    <span id="statusMessage">🐍 Click here then press SPACE/UP to jump!</span>
 </div>
 
 <script>
@@ -105,30 +107,26 @@ game_html = """
             allCollected = false;
             snake.score = 0;
             updateScoreUI();
-            statusSpan.innerText = "🐍 Jump to catch money!";
+            statusSpan.innerText = "🐍 Click then press SPACE/UP to jump!";
             if (audioCtx && audioCtx.state === 'suspended') {
                 audioCtx.resume();
             }
         }
 
-        // ---------- Draw a realistic snake ----------
+        // ---------- Draw realistic snake ----------
         function drawSnake(x, y, w, h) {
-            // Body (curved)
             ctx.fillStyle = "#2E8B57";
             ctx.beginPath();
             ctx.ellipse(x + w/2, y + h/2, w/2, h/2, 0, 0, Math.PI*2);
             ctx.fill();
-            // Belly (lighter)
             ctx.fillStyle = "#3CB371";
             ctx.beginPath();
             ctx.ellipse(x + w/2, y + h/1.8, w/2.5, h/3, 0, 0, Math.PI*2);
             ctx.fill();
-            // Head (larger front part)
             ctx.fillStyle = "#2E8B57";
             ctx.beginPath();
             ctx.ellipse(x + w - 5, y + h/2, w/2.2, h/2.2, 0, 0, Math.PI*2);
             ctx.fill();
-            // Eyes
             ctx.fillStyle = "white";
             ctx.beginPath();
             ctx.arc(x + w - 12, y + h/2 - 8, 6, 0, Math.PI*2);
@@ -139,14 +137,12 @@ game_html = """
             ctx.arc(x + w - 14, y + h/2 - 9, 3, 0, Math.PI*2);
             ctx.arc(x + w - 30, y + h/2 - 9, 3, 0, Math.PI*2);
             ctx.fill();
-            // Tongue
             ctx.beginPath();
             ctx.moveTo(x + w, y + h/2);
             ctx.lineTo(x + w + 12, y + h/2 - 6);
             ctx.lineTo(x + w + 12, y + h/2 + 6);
             ctx.fillStyle = "red";
             ctx.fill();
-            // Scales (small dots)
             ctx.fillStyle = "#1F6B3A";
             for (let i = 0; i < 8; i++) {
                 ctx.beginPath();
@@ -159,7 +155,6 @@ game_html = """
         function updateGame() {
             if (gameOver || win) return;
 
-            // Snake physics (gravity)
             snake.vy += 0.8;
             snake.y += snake.vy;
             if (snake.y >= GROUND_Y - SNAKE_H) {
@@ -174,13 +169,11 @@ game_html = """
                 snake.vy = 0;
             }
 
-            // Auto move right
             if (!allCollected) {
                 snake.x += autoMoveSpeed;
                 if (snake.x < 0) snake.x = 0;
             }
 
-            // Car spawning
             carSpawnCounter++;
             if (carSpawnCounter > 85 && !allCollected) {
                 carSpawnCounter = 0;
@@ -194,7 +187,6 @@ game_html = """
                 }
             }
 
-            // Collision with car
             for (let car of cars) {
                 if (snake.x < car.x + CAR_W &&
                     snake.x + SNAKE_W > car.x &&
@@ -206,13 +198,12 @@ game_html = """
                         fullReset();
                         gameOver = false;
                         win = false;
-                        statusSpan.innerText = "🐍 Jump to catch money!";
+                        statusSpan.innerText = "🐍 Click then press SPACE/UP to jump!";
                     }, 800);
                     return;
                 }
             }
 
-            // Collect money
             for (let i = 0; i < moneyBags.length; i++) {
                 let m = moneyBags[i];
                 if (!m.collected &&
@@ -227,7 +218,6 @@ game_html = """
                 }
             }
 
-            // Check win
             allCollected = checkAllCollected();
             if (allCollected) {
                 statusSpan.innerText = "🎉 All money collected! Run to the finish line! 🎉";
@@ -248,16 +238,13 @@ game_html = """
         // ---------- Drawing ----------
         function draw() {
             ctx.clearRect(0, 0, W, H);
-            // Sky
             ctx.fillStyle = "#87CEEB";
             ctx.fillRect(0, 0, W, H);
-            // Ground
             ctx.fillStyle = "#8B5A2B";
             ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
             ctx.fillStyle = "#654321";
             ctx.fillRect(0, GROUND_Y+5, W, 5);
             
-            // Finish line
             if (allCollected) {
                 ctx.beginPath();
                 ctx.moveTo(finishLineX, 0);
@@ -270,7 +257,6 @@ game_html = """
                 ctx.fillText("FINISH", finishLineX-45, H/2);
             }
             
-            // Money bags
             for (let m of moneyBags) {
                 if (!m.collected) {
                     ctx.fillStyle = "#FFD700";
@@ -281,7 +267,6 @@ game_html = """
                 }
             }
             
-            // Cars
             for (let car of cars) {
                 ctx.fillStyle = "#FF4500";
                 ctx.fillRect(car.x, car.y, CAR_W, CAR_H);
@@ -292,10 +277,8 @@ game_html = """
                 ctx.fillRect(car.x+20, car.y+8, 30, 25);
             }
             
-            // Snake (realistic)
             drawSnake(snake.x, snake.y, SNAKE_W, SNAKE_H);
             
-            // Messages
             if (gameOver && !win) {
                 ctx.font = "bold 28px monospace";
                 ctx.fillStyle = "red";
@@ -305,7 +288,6 @@ game_html = """
                 ctx.font = "bold 28px monospace";
                 ctx.fillStyle = "gold";
                 ctx.fillText("Congratulations! Pythoneer!", W/2-210, H/2-40);
-                // Balloons
                 for (let i=0; i<12; i++) {
                     ctx.fillStyle = `hsl(${Date.now()/20 + i*30}, 70%, 60%)`;
                     ctx.beginPath();
@@ -320,14 +302,13 @@ game_html = """
             }
         }
 
-        // ---------- Game loop ----------
         function gameLoop() {
             updateGame();
             draw();
             requestAnimationFrame(gameLoop);
         }
 
-        // ---------- Jump (more responsive) ----------
+        // ---------- Jump ----------
         function jump() {
             if (gameOver || win) return;
             if (snake.onGround) {
@@ -336,15 +317,24 @@ game_html = """
             }
         }
 
-        // ---------- Keyboard events (prevent default, work globally) ----------
-        window.addEventListener('keydown', function(e) {
+        // ---------- Keyboard handling (force focus) ----------
+        function handleKey(e) {
             if (e.code === 'Space' || e.code === 'ArrowUp') {
                 e.preventDefault();
                 jump();
             }
-        });
+        }
 
-        // Also touch for mobile? Not needed.
+        // Ensure canvas receives focus and listens to keys
+        canvas.addEventListener('click', () => {
+            canvas.focus();
+            statusSpan.innerText = "🎮 Controls active! Press SPACE/UP to jump.";
+        });
+        canvas.addEventListener('keydown', handleKey);
+        // Also global window as fallback
+        window.addEventListener('keydown', handleKey);
+
+        // Start game
         fullReset();
         gameLoop();
     })();
