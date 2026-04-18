@@ -1,302 +1,341 @@
-import pygame
-import random
-import sys
+import streamlit as st
 
-# Initialize Pygame
-pygame.init()
-pygame.mixer.init()
+st.set_page_config(page_title="Python Running After Cash", layout="centered")
 
-# Constants
-SCREEN_WIDTH = 800
-SCREEN_HEIGHT = 400
-FPS = 60
+st.markdown("""
+<style>
+    body { margin: 0; overflow: hidden; }
+    canvas { display: block; margin: 0 auto; border: 2px solid #333; box-shadow: 0 0 10px rgba(0,0,0,0.2); }
+    .info { text-align: center; font-family: monospace; font-size: 1.2rem; margin-top: 10px; }
+    button { background: #4CAF50; border: none; color: white; padding: 10px 20px; text-align: center; font-size: 16px; margin: 10px; cursor: pointer; border-radius: 8px; }
+    button:hover { background: #45a049; }
+</style>
+""", unsafe_allow_html=True)
 
-# Colors
-WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
-GREEN = (0, 255, 0)
-RED = (255, 0, 0)
-YELLOW = (255, 255, 0)
-BLUE = (0, 0, 255)
-ORANGE = (255, 165, 0)
+st.markdown("""
+<div style="text-align: center;">
+    <h1>🐍 Python Running After Cash 💰</h1>
+    <p>Press <strong>SPACE</strong> or <strong>UP ARROW</strong> to jump. Collect all 5 money bags, avoid the red car, and reach the finish line!</p>
+</div>
+""", unsafe_allow_html=True)
 
-# Load sounds (create a simple bell sound using pygame's sine wave generator)
-def create_bell_sound():
-    sample_rate = 44100
-    duration = 0.3
-    frequency = 880  # A5 note
-    samples = int(sample_rate * duration)
-    wave = [int(32767 * 0.5 * (1 - abs(i / samples * 2 - 1)) * (i % 2) * 2) for i in range(samples)]  # simple beep
-    sound = pygame.mixer.Sound(buffer=bytes(bytearray(wave)))
-    return sound
+game_html = """
+<canvas id="gameCanvas" width="800" height="400"></canvas>
+<div class="info">
+    <span>💰 Cash: <span id="scoreDisplay">0</span> / 5</span>
+    &nbsp;&nbsp;&nbsp;
+    <span id="statusMessage">🐍 Jump to catch money!</span>
+</div>
+<div style="text-align: center;">
+    <button id="restartButton">🔄 Restart Game</button>
+</div>
 
-bell_sound = create_bell_sound()
+<script>
+    (function() {
+        // ---------- DOM elements ----------
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreSpan = document.getElementById('scoreDisplay');
+        const statusSpan = document.getElementById('statusMessage');
 
-# Load images (create simple shapes instead of external files)
-# We'll use pygame.draw functions for all graphics
+        // ---------- Game constants ----------
+        const W = 800, H = 400;
+        const GROUND_Y = H - 40;
+        const SNAKE_W = 40, SNAKE_H = 40;
+        const MONEY_W = 25, MONEY_H = 25;
+        const CAR_W = 60, CAR_H = 40;
 
-# Game classes
-class Snake:
-    def __init__(self):
-        self.width = 40
-        self.height = 40
-        self.x = 50
-        self.y = SCREEN_HEIGHT - self.height - 30
-        self.y_velocity = 0
-        self.on_ground = True
-        self.score = 0
-        self.cash_collected = 0
+        // ---------- Game state ----------
+        let snake = { x: 50, y: GROUND_Y - SNAKE_H, vy: 0, onGround: true, score: 0 };
+        let moneyBags = [
+            { x: 250, y: GROUND_Y - 70, collected: false },
+            { x: 450, y: GROUND_Y - 100, collected: false },
+            { x: 650, y: GROUND_Y - 60, collected: false },
+            { x: 850, y: GROUND_Y - 90, collected: false },
+            { x: 1050, y: GROUND_Y - 80, collected: false }
+        ];
+        let cars = [];
+        let carSpawnCounter = 0;
+        let gameOver = false;
+        let win = false;
+        let animationId = null;
+        let lastTimestamp = 0;
+        let finishLineX = 1200;
+        let allCollected = false;
+        
+        // For automatic walking (snake moves right automatically)
+        let autoMoveSpeed = 3;
 
-    def jump(self):
-        if self.on_ground:
-            self.y_velocity = -12
-            self.on_ground = False
+        // ---------- Sound (simple beep using Web Audio) ----------
+        let audioCtx = null;
+        function playBell() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            // resume if suspended (browser policy)
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.frequency.value = 880; // A5
+            gain.gain.value = 0.2;
+            osc.type = 'sine';
+            osc.start();
+            gain.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + 0.3);
+            osc.stop(audioCtx.currentTime + 0.3);
+        }
 
-    def update(self):
-        # Gravity
-        self.y_velocity += 0.8
-        self.y += self.y_velocity
-        if self.y >= SCREEN_HEIGHT - self.height - 30:
-            self.y = SCREEN_HEIGHT - self.height - 30
-            self.y_velocity = 0
-            self.on_ground = True
-        # Keep within screen top
-        if self.y < 0:
-            self.y = 0
-            self.y_velocity = 0
+        // ---------- Helper functions ----------
+        function updateScoreUI() {
+            scoreSpan.textContent = `${snake.score} / ${moneyBags.length}`;
+        }
 
-    def draw(self, screen):
-        # Draw snake head (green rectangle with eyes)
-        pygame.draw.rect(screen, GREEN, (self.x, self.y, self.width, self.height))
-        pygame.draw.circle(screen, WHITE, (self.x + 10, self.y + 10), 5)
-        pygame.draw.circle(screen, WHITE, (self.x + 30, self.y + 10), 5)
-        pygame.draw.circle(screen, BLACK, (self.x + 10, self.y + 10), 2)
-        pygame.draw.circle(screen, BLACK, (self.x + 30, self.y + 10), 2)
-        # Tongue
-        pygame.draw.line(screen, RED, (self.x + 40, self.y + 20), (self.x + 50, self.y + 25), 3)
+        function checkAllCollected() {
+            return moneyBags.every(b => b.collected);
+        }
 
-    def get_rect(self):
-        return pygame.Rect(self.x, self.y, self.width, self.height)
+        // ---------- Game logic update ----------
+        function updateGame() {
+            if (gameOver || win) return;
 
-class Money:
-    def __init__(self, x, y):
-        self.width = 25
-        self.height = 25
-        self.x = x
-        self.y = y
-        self.collected = False
+            // 1. Snake physics (jump)
+            snake.vy += 0.8;
+            snake.y += snake.vy;
+            if (snake.y >= GROUND_Y - SNAKE_H) {
+                snake.y = GROUND_Y - SNAKE_H;
+                snake.vy = 0;
+                snake.onGround = true;
+            } else {
+                snake.onGround = false;
+            }
+            if (snake.y < 0) {
+                snake.y = 0;
+                snake.vy = 0;
+            }
 
-    def draw(self, screen):
-        if not self.collected:
-            pygame.draw.rect(screen, YELLOW, (self.x, self.y, self.width, self.height))
-            # Draw dollar sign
-            font = pygame.font.Font(None, 24)
-            text = font.render("$", True, BLACK)
-            screen.blit(text, (self.x + 5, self.y + 2))
+            // 2. Auto move right (only if not all collected yet)
+            if (!allCollected) {
+                snake.x += autoMoveSpeed;
+                if (snake.x < 0) snake.x = 0;
+            }
 
-    def get_rect(self):
-        return pygame.Rect(self.x, self.y, self.width, self.height)
+            // 3. Car spawning and movement
+            carSpawnCounter++;
+            if (carSpawnCounter > 90 && !allCollected) { // every ~1.5 sec
+                carSpawnCounter = 0;
+                cars.push({ x: W, y: GROUND_Y - CAR_H, w: CAR_W, h: CAR_H });
+            }
+            for (let i = 0; i < cars.length; i++) {
+                cars[i].x -= 6;
+                if (cars[i].x + CAR_W < 0) {
+                    cars.splice(i,1);
+                    i--;
+                }
+            }
 
-class Car:
-    def __init__(self, x, y):
-        self.width = 60
-        self.height = 40
-        self.x = x
-        self.y = y
-        self.speed = -8  # moves left
+            // 4. Collision with car
+            for (let car of cars) {
+                if (snake.x < car.x + CAR_W &&
+                    snake.x + SNAKE_W > car.x &&
+                    snake.y < car.y + CAR_H &&
+                    snake.y + SNAKE_H > car.y) {
+                    gameOver = true;
+                    statusSpan.innerText = "💀 Game Over! Press Restart.";
+                    return;
+                }
+            }
 
-    def update(self):
-        self.x += self.speed
+            // 5. Money collection
+            for (let i=0; i<moneyBags.length; i++) {
+                let m = moneyBags[i];
+                if (!m.collected &&
+                    snake.x < m.x + MONEY_W &&
+                    snake.x + SNAKE_W > m.x &&
+                    snake.y < m.y + MONEY_H &&
+                    snake.y + SNAKE_H > m.y) {
+                    m.collected = true;
+                    snake.score++;
+                    playBell();
+                    updateScoreUI();
+                }
+            }
 
-    def draw(self, screen):
-        pygame.draw.rect(screen, RED, (self.x, self.y, self.width, self.height))
-        pygame.draw.circle(screen, BLACK, (self.x + 15, self.y + 35), 8)
-        pygame.draw.circle(screen, BLACK, (self.x + 45, self.y + 35), 8)
-        pygame.draw.rect(screen, BLUE, (self.x + 10, self.y + 10, 40, 20))
+            // 6. Check if all collected
+            allCollected = checkAllCollected();
+            if (allCollected) {
+                statusSpan.innerText = "🎉 All money collected! Run to the finish line! 🎉";
+                // If snake passes finish line, win
+                if (snake.x + SNAKE_W >= finishLineX) {
+                    win = true;
+                    statusSpan.innerText = "🏆 Congratulations! Pythoneer! 🏆";
+                }
+            } else {
+                // if not all collected, ensure win is false
+                win = false;
+            }
 
-    def get_rect(self):
-        return pygame.Rect(self.x, self.y, self.width, self.height)
+            // 7. Win condition (already checked above)
+            if (allCollected && snake.x + SNAKE_W >= finishLineX) {
+                win = true;
+                statusSpan.innerText = "🏆 Congratulations! Pythoneer! 🏆";
+            }
+        }
 
-class Balloon:
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
-        self.radius = 15
-        self.color = random.choice([RED, BLUE, YELLOW, ORANGE])
-        self.speed = -2
-
-    def update(self):
-        self.y += self.speed
-
-    def draw(self, screen):
-        pygame.draw.circle(screen, self.color, (self.x, self.y), self.radius)
-        pygame.draw.line(screen, BLACK, (self.x, self.y + self.radius), (self.x, self.y + self.radius + 10), 2)
-
-def show_game_over(screen, score):
-    font = pygame.font.Font(None, 74)
-    text = font.render("GAME OVER", True, RED)
-    screen.blit(text, (SCREEN_WIDTH//2 - 150, SCREEN_HEIGHT//2 - 50))
-    font_small = pygame.font.Font(None, 36)
-    score_text = font_small.render(f"Cash collected: {score}", True, WHITE)
-    screen.blit(score_text, (SCREEN_WIDTH//2 - 100, SCREEN_HEIGHT//2 + 20))
-    pygame.display.flip()
-    pygame.time.wait(3000)
-
-def show_win(screen, score, balloons):
-    # Draw balloons
-    for balloon in balloons:
-        balloon.draw(screen)
-    # Congratulation text
-    font = pygame.font.Font(None, 48)
-    text = font.render("Congratulations! Pythoneer", True, YELLOW)
-    screen.blit(text, (SCREEN_WIDTH//2 - 180, SCREEN_HEIGHT//2 - 50))
-    font_small = pygame.font.Font(None, 36)
-    score_text = font_small.render(f"You collected {score} cash bags!", True, WHITE)
-    screen.blit(score_text, (SCREEN_WIDTH//2 - 120, SCREEN_HEIGHT//2 + 20))
-    pygame.display.flip()
-    pygame.time.wait(4000)
-
-def main():
-    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-    pygame.display.set_caption("Python Running After Cash")
-    clock = pygame.time.Clock()
-
-    snake = Snake()
-    # Money bags placed at increasing x positions
-    money_bags = [
-        Money(250, SCREEN_HEIGHT - 100),
-        Money(450, SCREEN_HEIGHT - 130),
-        Money(650, SCREEN_HEIGHT - 90),
-        Money(850, SCREEN_HEIGHT - 120),
-        Money(1050, SCREEN_HEIGHT - 100),
-    ]
-    # Cars appear periodically
-    cars = []
-    car_timer = 0
-    finish_line_x = 1200  # after last money bag
-
-    # Game state
-    running = True
-    game_over = False
-    win = False
-    balloons = []
-
-    while running:
-        clock.tick(FPS)
-
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_UP:
-                    snake.jump()
-                if game_over or win:
-                    if event.key == pygame.K_r:
-                        # Restart
-                        return main()
-                    if event.key == pygame.K_q:
-                        running = False
-
-        if not game_over and not win:
-            # Update snake
-            snake.update()
-
-            # Update cars and spawn new cars
-            car_timer += 1
-            if car_timer > 90:  # spawn car every 1.5 seconds
-                car_timer = 0
-                cars.append(Car(SCREEN_WIDTH, SCREEN_HEIGHT - 70))
-            for car in cars[:]:
-                car.update()
-                if car.x + car.width < 0:
-                    cars.remove(car)
-
-            # Check collision with car
-            for car in cars:
-                if snake.get_rect().colliderect(car.get_rect()):
-                    game_over = True
-
-            # Check collision with money bags
-            for money in money_bags:
-                if not money.collected and snake.get_rect().colliderect(money.get_rect()):
-                    money.collected = True
-                    snake.cash_collected += 1
-                    bell_sound.play()
-                    # Remove money bag after collection (optional, we just mark collected)
+        // ---------- Drawing functions ----------
+        function draw() {
+            ctx.clearRect(0, 0, W, H);
+            // Sky
+            ctx.fillStyle = "#87CEEB";
+            ctx.fillRect(0, 0, W, H);
+            // Ground
+            ctx.fillStyle = "#8B5A2B";
+            ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
+            ctx.fillStyle = "#654321";
+            ctx.fillRect(0, GROUND_Y+5, W, 5);
             
-            # Check if all money bags collected
-            if all(m.collected for m in money_bags):
-                if snake.x + snake.width >= finish_line_x - 50:
-                    win = True
-                    # Create balloons
-                    for i in range(20):
-                        balloons.append(Balloon(random.randint(0, SCREEN_WIDTH), SCREEN_HEIGHT))
-                else:
-                    # Move snake automatically forward (only if not finished)
-                    snake.x += 3
+            // Finish line (if all collected)
+            if (allCollected) {
+                ctx.beginPath();
+                ctx.moveTo(finishLineX, 0);
+                ctx.lineTo(finishLineX, H);
+                ctx.lineWidth = 5;
+                ctx.strokeStyle = "blue";
+                ctx.stroke();
+                ctx.fillStyle = "blue";
+                ctx.font = "bold 16px monospace";
+                ctx.fillText("FINISH", finishLineX-40, H/2);
+            }
+            
+            // Draw money bags
+            for (let m of moneyBags) {
+                if (!m.collected) {
+                    ctx.fillStyle = "#FFD700";
+                    ctx.fillRect(m.x, m.y, MONEY_W, MONEY_H);
+                    ctx.fillStyle = "#000";
+                    ctx.font = "bold 16px monospace";
+                    ctx.fillText("$", m.x+6, m.y+18);
+                }
+            }
+            
+            // Draw cars
+            for (let car of cars) {
+                ctx.fillStyle = "#FF4500";
+                ctx.fillRect(car.x, car.y, CAR_W, CAR_H);
+                ctx.fillStyle = "#333";
+                ctx.fillRect(car.x+10, car.y+25, 15, 15);
+                ctx.fillRect(car.x+35, car.y+25, 15, 15);
+                ctx.fillStyle = "#555";
+                ctx.fillRect(car.x+15, car.y+5, 30, 20);
+            }
+            
+            // Draw snake (green rectangle with eyes)
+            ctx.fillStyle = "#2E8B57";
+            ctx.fillRect(snake.x, snake.y, SNAKE_W, SNAKE_H);
+            ctx.fillStyle = "white";
+            ctx.fillRect(snake.x+8, snake.y+8, 8, 8);
+            ctx.fillRect(snake.x+24, snake.y+8, 8, 8);
+            ctx.fillStyle = "black";
+            ctx.fillRect(snake.x+10, snake.y+10, 4, 4);
+            ctx.fillRect(snake.x+26, snake.y+10, 4, 4);
+            // Tongue
+            ctx.beginPath();
+            ctx.moveTo(snake.x+SNAKE_W, snake.y+SNAKE_H/2);
+            ctx.lineTo(snake.x+SNAKE_W+10, snake.y+SNAKE_H/2-5);
+            ctx.lineTo(snake.x+SNAKE_W+10, snake.y+SNAKE_H/2+5);
+            ctx.fillStyle = "red";
+            ctx.fill();
+            
+            // Game over text
+            if (gameOver) {
+                ctx.font = "bold 30px monospace";
+                ctx.fillStyle = "red";
+                ctx.fillText("GAME OVER", W/2-100, H/2);
+            }
+            if (win) {
+                ctx.font = "bold 24px monospace";
+                ctx.fillStyle = "gold";
+                ctx.fillText("Congratulations! Pythoneer!", W/2-180, H/2-30);
+                // Draw some balloons
+                for (let i=0; i<10; i++) {
+                    ctx.fillStyle = `hsl(${Date.now()/20 + i*36}, 70%, 60%)`;
+                    ctx.beginPath();
+                    ctx.ellipse(100 + i*70, H-80 - Math.sin(Date.now()/300 + i)*20, 15, 20, 0, 0, Math.PI*2);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.moveTo(100 + i*70, H-80);
+                    ctx.lineTo(100 + i*70 - 3, H-60);
+                    ctx.lineTo(100 + i*70 + 3, H-60);
+                    ctx.fill();
+                }
+            }
+        }
 
-            # If snake passes finish line after collecting all money, win
-            if snake.x + snake.width >= finish_line_x and all(m.collected for m in money_bags):
-                win = True
-                for i in range(20):
-                    balloons.append(Balloon(random.randint(0, SCREEN_WIDTH), SCREEN_HEIGHT))
+        // ---------- Game loop ----------
+        function gameLoop() {
+            updateGame();
+            draw();
+            if (!gameOver && !win) {
+                requestAnimationFrame(gameLoop);
+            } else {
+                // if game over or win, keep drawing but stop updates? We still loop but no movement.
+                // Actually we still call loop to allow restart button to reset.
+                requestAnimationFrame(gameLoop);
+            }
+        }
 
-            # Prevent snake from going too far left
-            if snake.x < 0:
-                snake.x = 0
+        // ---------- Jump control ----------
+        function jump() {
+            if (gameOver || win) return;
+            if (snake.onGround) {
+                snake.vy = -11;
+                snake.onGround = false;
+            }
+        }
 
-        # Drawing
-        screen.fill(WHITE)
-        # Draw ground
-        pygame.draw.rect(screen, BLACK, (0, SCREEN_HEIGHT - 30, SCREEN_WIDTH, 30))
-        pygame.draw.line(screen, WHITE, (0, SCREEN_HEIGHT - 30), (SCREEN_WIDTH, SCREEN_HEIGHT - 30), 2)
+        // ---------- Restart function ----------
+        function restartGame() {
+            // Reset state
+            snake = { x: 50, y: GROUND_Y - SNAKE_H, vy: 0, onGround: true, score: 0 };
+            moneyBags = [
+                { x: 250, y: GROUND_Y - 70, collected: false },
+                { x: 450, y: GROUND_Y - 100, collected: false },
+                { x: 650, y: GROUND_Y - 60, collected: false },
+                { x: 850, y: GROUND_Y - 90, collected: false },
+                { x: 1050, y: GROUND_Y - 80, collected: false }
+            ];
+            cars = [];
+            carSpawnCounter = 0;
+            gameOver = false;
+            win = false;
+            allCollected = false;
+            snake.score = 0;
+            updateScoreUI();
+            statusSpan.innerText = "🐍 Jump to catch money!";
+            // Restart audio context if needed
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
 
-        # Draw finish line
-        if all(m.collected for m in money_bags):
-            pygame.draw.line(screen, BLUE, (finish_line_x, 0), (finish_line_x, SCREEN_HEIGHT), 5)
-            font = pygame.font.Font(None, 24)
-            finish_text = font.render("FINISH", True, BLUE)
-            screen.blit(finish_text, (finish_line_x - 30, SCREEN_HEIGHT // 2))
+        // ---------- Event listeners ----------
+        window.addEventListener('keydown', function(e) {
+            if (e.code === 'Space' || e.code === 'ArrowUp') {
+                e.preventDefault();
+                jump();
+            }
+        });
+        document.getElementById('restartButton').addEventListener('click', function() {
+            restartGame();
+        });
+        
+        // Start the game
+        restartGame();  // initial reset to correct values
+        gameLoop();
+    })();
+</script>
+"""
 
-        snake.draw(screen)
-        for money in money_bags:
-            money.draw(screen)
-        for car in cars:
-            car.draw(screen)
-
-        # Score display
-        font = pygame.font.Font(None, 36)
-        score_text = font.render(f"Cash: {snake.cash_collected}/{len(money_bags)}", True, BLACK)
-        screen.blit(score_text, (10, 10))
-
-        if game_over:
-            show_game_over(screen, snake.cash_collected)
-            running = False
-        if win:
-            # Animate balloons
-            for _ in range(3):
-                for balloon in balloons:
-                    balloon.update()
-                screen.fill(WHITE)
-                # redraw everything (simplified)
-                pygame.draw.rect(screen, BLACK, (0, SCREEN_HEIGHT - 30, SCREEN_WIDTH, 30))
-                snake.draw(screen)
-                for money in money_bags:
-                    money.draw(screen)
-                for balloon in balloons:
-                    balloon.draw(screen)
-                font_large = pygame.font.Font(None, 48)
-                congrats = font_large.render("Congratulations! Pythoneer", True, YELLOW)
-                screen.blit(congrats, (SCREEN_WIDTH//2 - 180, SCREEN_HEIGHT//2 - 50))
-                pygame.display.flip()
-                pygame.time.wait(100)
-            pygame.time.wait(2000)
-            running = False
-
-        pygame.display.flip()
-
-    pygame.quit()
-    sys.exit()
-
-if __name__ == "__main__":
-    main()
+st.components.v1.html(game_html, height=480, scrolling=False)
